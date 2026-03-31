@@ -23,6 +23,22 @@ Ce module intercepte les opérations ORM (`create`, `write`, `unlink`) sur **tou
 | `write()` | `is_model_readonly` sur le modèle | `AccessError` |
 | `write()` | `is_field_readonly` sur des champs | `AccessError` sur les champs bloqués |
 
+## Comment ça marche concrètement
+
+`access_roles` = la **configuration** (quoi bloquer, pour qui)
+`access_roles_security` = le **verrou serveur** (empêche le contournement)
+
+Les deux travaillent ensemble :
+
+| | Sans `access_roles_security` | Avec `access_roles_security` |
+|---|---|---|
+| Bouton "Créer" caché | Caché dans l'UI, **URL `/new` fonctionne** | Caché dans l'UI **+ URL `/new` → AccessError** |
+| Modèle en lecture seule | Champs grisés, **RPC `write()` passe** | Champs grisés **+ RPC `write()` → AccessError** |
+| Champ prix en readonly | Grisé dans le formulaire, **modifiable via RPC** | Grisé **+ RPC sur ce champ → AccessError** |
+| Suppression cachée | Bouton caché, **`unlink()` via RPC passe** | Bouton caché **+ `unlink()` → AccessError** |
+
+**Vous ne changez rien dans votre configuration.** Vous continuez à tout configurer dans `access_roles` comme d'habitude. Le module `access_roles_security` lit ces mêmes règles et les applique au niveau du serveur Python automatiquement.
+
 ## Exemptions automatiques
 
 Les vérifications sont ignorées pour :
