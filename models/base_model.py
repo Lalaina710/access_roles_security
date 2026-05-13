@@ -2,8 +2,42 @@ from odoo import api, models, SUPERUSER_ID, _
 from odoo.exceptions import AccessError
 
 
+# Whitelist des modèles critiques workflow POS + comptabilité auto-générée.
+# Ces modèles bypassent les restrictions de role pour éviter de bloquer
+# les flux natifs Odoo (paiement POS → write pos.order state, création
+# stock.picking/move automatique, comptabilisation auto via account.move).
+# Cf. incident P0 2026-05-12 : caissier role PDV bloqué sur write pos.order
+# state draft→paid→done par AccessError ici.
+_POS_BYPASS_MODELS = frozenset({
+    'pos.order',
+    'pos.order.line',
+    'pos.payment',
+    'pos.session',
+    'stock.picking',
+    'stock.move',
+    'stock.move.line',
+    'stock.quant',
+    'account.move',
+    'account.move.line',
+    'account.bank.statement',
+    'account.bank.statement.line',
+    'account.payment',
+})
+
+
 class BaseModel(models.AbstractModel):
     _inherit = 'base'
+
+    def _is_pos_critical_model(self):
+        """True si le modèle est critique pour le workflow POS et doit
+        bypasser les restrictions de role (write/create/unlink).
+
+        La sécurité reste assurée par les ACL/record rules natifs Odoo
+        et par les modules `sensible_pos_access_rights_employee` /
+        `access_roles` côté UI. Cette exemption évite uniquement le
+        blocage du workflow ORM automatique (état POS, picking, AML).
+        """
+        return self._name in _POS_BYPASS_MODELS
 
     def _get_role_management(self):
         """Return the current user's role management, or False."""
@@ -39,14 +73,24 @@ class BaseModel(models.AbstractModel):
 
     @api.model_create_multi
     def create(self, vals_list):
-        self._check_role_model_restriction('is_hide_create')
+        # Bypass précoce pour les modèles critiques POS (workflow natif).
+        if not self._is_pos_critical_model():
+            self._check_role_model_restriction('is_hide_create')
         return super().create(vals_list)
 
     def unlink(self):
-        self._check_role_model_restriction('is_hide_delete')
+        # Bypass précoce pour les modèles critiques POS (workflow natif).
+        if not self._is_pos_critical_model():
+            self._check_role_model_restriction('is_hide_delete')
         return super().unlink()
 
     def write(self, vals):
+        # Bypass précoce pour les modèles critiques POS (workflow natif).
+        # Évite de bloquer write pos.order/stock.picking/account.move
+        # générés automatiquement par le flux POS et la chaîne logistique.
+        if self._is_pos_critical_model():
+            return super().write(vals)
+
         management = self._get_role_management()
         if not management:
             return super().write(vals)
