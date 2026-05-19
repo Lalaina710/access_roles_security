@@ -73,18 +73,37 @@ class BaseModel(models.AbstractModel):
 
     @api.model_create_multi
     def create(self, vals_list):
+        # Bypass TransientModel (wizards) : ils stockent leur état session
+        # (params, binary, lignes temporaires) auto-purgé après 60 min. Pas
+        # de data métier persistante donc pas de risque sécurité. Les checks
+        # métier s'appliquent sur les modèles cibles que le wizard manipule
+        # (stock.move, account.move, etc.) lors de leur action_apply/confirm.
+        # Cf. fix 2026-05-19 : rôle CdG (is_readonly) bloqué sur tout wizard
+        # de rapport (stock_movement_report, sale_invoice_report, etc.).
+        if self._transient:
+            return super().create(vals_list)
         # Bypass précoce pour les modèles critiques POS (workflow natif).
         if not self._is_pos_critical_model():
             self._check_role_model_restriction('is_hide_create')
         return super().create(vals_list)
 
     def unlink(self):
+        # Bypass TransientModel : voir justification dans create().
+        if self._transient:
+            return super().unlink()
         # Bypass précoce pour les modèles critiques POS (workflow natif).
         if not self._is_pos_critical_model():
             self._check_role_model_restriction('is_hide_delete')
         return super().unlink()
 
     def write(self, vals):
+        # Bypass TransientModel : voir justification dans create().
+        # En pratique, ce bypass débloque les rôles `is_readonly` (ex. CdG
+        # Controleur SOPROMER) qui ne pouvaient générer AUCUN rapport, car
+        # tous les wizards de rapport écrivent leur state/résultat binaire
+        # sur eux-mêmes.
+        if self._transient:
+            return super().write(vals)
         # Bypass précoce pour les modèles critiques POS (workflow natif).
         # Évite de bloquer write pos.order/stock.picking/account.move
         # générés automatiquement par le flux POS et la chaîne logistique.
