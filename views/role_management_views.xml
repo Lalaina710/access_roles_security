@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!--
+        Ajoute un onglet "Exceptions écriture" sur la fiche Role Management.
+        Visible uniquement quand `is_readonly` (lecture seule globale) est
+        coché — sinon le champ n'a aucun sens.
+        Le champ writable_model_ids est défini dans
+        models/role_management.py et stocke la whitelist des modèles
+        autorisés à l'édition malgré le mode lecture seule.
+    -->
+    <record id="role_management_view_form_inherit_writable_models" model="ir.ui.view">
+        <field name="name">role.management.view.form.inherit.writable.models</field>
+        <field name="model">role.management</field>
+        <field name="inherit_id" ref="access_roles.role_management_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//page[@name='hide_menu']" position="before">
+                <page name="writable_models"
+                      string="Exceptions écriture"
+                      invisible="not is_readonly">
+                    <field name="writable_model_ids"
+                           widget="many2many_tags"
+                           options="{'no_create': True, 'no_create_edit': True}"/>
+                    <p class="text-muted">
+                        Modèles que les users de ce rôle peuvent éditer
+                        même si "Make System ReadOnly" est coché.
+                        Les restrictions per-model et per-field
+                        continuent de s'appliquer si configurées
+                        explicitement sur ces modèles.
+                    </p>
+                </page>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>

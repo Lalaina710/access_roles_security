@@ -1,6 +1,6 @@
 {
     'name': 'Access Roles - Server Security',
-    'version': '18.0.1.0.3',
+    'version': '18.0.1.1.0',
     'category': 'Security',
     'summary': 'Server-side enforcement for Access Roles restrictions',
     'description': """
@@ -9,7 +9,17 @@ Prevents bypass via URL or RPC.
 
 Changelog
 ---------
-18.0.1.0.3 (2026-06-01)
+18.0.1.1.0 (2026-06-01)
+    [FEAT] Whitelist d'exception lecture seule désormais configurable via UI.
+           Nouveau champ Many2many `writable_model_ids` sur role.management
+           (onglet "Exceptions écriture", visible si is_readonly=True).
+           Admin peut ajouter/retirer des modèles autorisés à l'édition
+           sans toucher au code. Migration auto pré-coche les 12 modèles
+           product.* sur le rôle "Controleur" pour conserver le
+           comportement v18.0.1.0.3 sans régression.
+           Supersedes v18.0.1.0.3 (whitelist hardcodée).
+
+18.0.1.0.3 (2026-06-01) — SUPERSEDED by 18.0.1.1.0
     [FIX] Whitelist product.* models (product.template, product.product,
           product.category, product.pricelist[.item], product.attribute[.value],
           product.template.attribute.line/value, product.supplierinfo,
@@ -44,7 +54,9 @@ Changelog
 """,
     'author': 'Custom',
     'depends': ['access_roles'],
-    'data': [],
+    'data': [
+        'views/role_management_views.xml',
+    ],
     'license': 'AGPL-3',
     'installable': True,
     'auto_install': False,
