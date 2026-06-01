@@ -1,151 +1,184 @@
-# Access Roles - Server Security (Odoo 18)
+# Access Roles - Server Security
 
-**Version : 18.0.1.2.0** — [Changelog complet](CHANGELOG.md)
+![Version](https://img.shields.io/badge/version-18.0.1.2.0-blue) ![License](https://img.shields.io/badge/license-AGPL--3-green) ![Odoo](https://img.shields.io/badge/Odoo-18.0%20Community-purple)
 
-Module compagnon de [Access Roles](https://apps.odoo.com/apps/modules/18.0/access_roles/) (Cybrosys) qui ajoute l'enforcement **côté serveur** des restrictions de rôles.
+Companion module for [Access Roles](https://apps.odoo.com/apps/modules/18.0/access_roles/) (Cybrosys Techno Solutions). See [CHANGELOG.md](CHANGELOG.md) for full version history.
 
-## Features
+## Overview
 
-- Enforcement ORM des restrictions `access_roles` sur `create` / `write` / `unlink` (anti-bypass URL/RPC)
-- Vérifications per-modèle (`is_model_readonly`), per-champ (`is_field_readonly`) et globales (`is_readonly`)
-- Bypass automatique pour TransientModel (wizards), modèles critiques POS (`pos.order`, `account.move`, ...) et modèles infra Odoo (`bus.presence`, `res.users.settings`, ...)
-- **Configurable writable models exceptions for read-only roles (UI-driven)** — onglet "Exceptions écriture" sur Role Management, voir [Usage](#exceptions-écriture)
+Server-side ORM enforcement extension for the `access_roles` module. Prevents privilege escalation via URL or RPC bypass and resolves common false-positive blocks introduced by roles flagged as `is_readonly=True`. The original `access_roles` module restricts the UI only; this extension intercepts `create` / `write` / `unlink` at the ORM layer so the restrictions hold across every entry point (web, RPC, scripts, automated actions).
 
-## Problème
+## Problem statement
 
-Le module `access_roles` applique ses restrictions **uniquement au niveau UI** :
-- Boutons cachés via XML (`invisible="True"`)
-- Champs readonly/invisible via modification de vue
-- Menus masqués, export désactivé via JS
+The third-party `access_roles` module enforces restrictions **at the UI level only**:
 
-**Tout cela est contournable** en collant une URL directe, en utilisant la console développeur, ou via des appels RPC/API.
+- Buttons hidden via XML (`invisible="True"`)
+- Fields rendered read-only via dynamic view tweaks
+- Menus masked and export disabled via JavaScript
+
+All of these are bypassable by crafting a direct URL, using the developer console, or issuing raw RPC/API calls. `access_roles_security` closes that gap.
+
+A second problem appears once `access_roles` is fully enforced server-side: a role flagged `is_readonly=True` (system-wide read-only access) ends up blocking even **harmless technical writes** — user heartbeat, UI preferences, wizard scratch data, automated POS state transitions — which produces intrusive "Access Error" popups during regular navigation. `access_roles_security` ships intelligent bypass layers to preserve the security intent while removing these false positives.
 
 ## Solution
 
-Ce module intercepte les opérations ORM (`create`, `write`, `unlink`) sur **tous les modèles** et vérifie les restrictions configurées dans `access_roles` avant d'autoriser l'opération.
+The module intercepts ORM operations on **every model** and checks the restrictions configured in `access_roles` before letting the operation through.
 
-| Opération | Restriction vérifiée | Résultat |
-|-----------|---------------------|----------|
-| `create()` | `is_hide_create` sur le modèle | `AccessError` |
-| `unlink()` | `is_hide_delete` sur le modèle | `AccessError` |
-| `write()` | `is_readonly` (global) | `AccessError` |
-| `write()` | `is_model_readonly` sur le modèle | `AccessError` |
-| `write()` | `is_field_readonly` sur des champs | `AccessError` sur les champs bloqués |
+| Operation | Restriction checked      | Outcome on violation         |
+| --------- | ------------------------ | ---------------------------- |
+| `create()`| `is_hide_create`         | `AccessError`                |
+| `unlink()`| `is_hide_delete`         | `AccessError`                |
+| `write()` | `is_readonly` (global)   | `AccessError`                |
+| `write()` | `is_model_readonly`      | `AccessError`                |
+| `write()` | `is_field_readonly`      | `AccessError` on the field   |
 
-## Comment ça marche concrètement
+You do not change anything in your `access_roles` configuration. You keep declaring rules in **Settings > Access Roles > Role Management** as usual; this module reads the same rules and applies them at the Python server layer automatically.
 
-`access_roles` = la **configuration** (quoi bloquer, pour qui)
-`access_roles_security` = le **verrou serveur** (empêche le contournement)
+### UI-only vs. UI + server enforcement
 
-Les deux travaillent ensemble :
-
-| | Sans `access_roles_security` | Avec `access_roles_security` |
+| | Without `access_roles_security` | With `access_roles_security` |
 |---|---|---|
-| Bouton "Créer" caché | Caché dans l'UI, **URL `/new` fonctionne** | Caché dans l'UI **+ URL `/new` → AccessError** |
-| Modèle en lecture seule | Champs grisés, **RPC `write()` passe** | Champs grisés **+ RPC `write()` → AccessError** |
-| Champ prix en readonly | Grisé dans le formulaire, **modifiable via RPC** | Grisé **+ RPC sur ce champ → AccessError** |
-| Suppression cachée | Bouton caché, **`unlink()` via RPC passe** | Bouton caché **+ `unlink()` → AccessError** |
+| "Create" button hidden | Hidden in UI, **URL `/new` still works** | Hidden in UI **+ URL `/new` → `AccessError`** |
+| Read-only model | Fields greyed, **RPC `write()` passes** | Fields greyed **+ RPC `write()` → `AccessError`** |
+| Read-only price field | Greyed in form, **mutable via RPC** | Greyed **+ RPC on that field → `AccessError`** |
+| Hidden delete | Button hidden, **`unlink()` via RPC passes** | Button hidden **+ `unlink()` → `AccessError`** |
 
-**Vous ne changez rien dans votre configuration.** Vous continuez à tout configurer dans `access_roles` comme d'habitude. Le module `access_roles_security` lit ces mêmes règles et les applique au niveau du serveur Python automatiquement.
+## Features
 
-## Exemptions automatiques
+- ORM enforcement of `access_roles` restrictions on `create` / `write` / `unlink` (anti-bypass for URL / RPC entry points)
+- Per-model (`is_model_readonly`), per-field (`is_field_readonly`), and global (`is_readonly`) checks
+- Automatic bypass for `TransientModel` (wizards), POS-critical business models, and Odoo infrastructure models
+- **UI-configurable writable exceptions** per role — Many2many `writable_model_ids` on `role.management`, no code change required
+- Root / `SUPERUSER_ID` and `sudo()` operations always pass through (crons, automated actions, server-side workflows unaffected)
+- Users without any role assigned are unaffected
 
-Les vérifications sont ignorées pour :
-- **Root / SUPERUSER_ID** : l'administrateur système n'est jamais bloqué
-- **Opérations `sudo()`** : crons, workflows, actions automatiques fonctionnent normalement
-- **Utilisateurs sans rôle** : aucun impact si pas de rôle assigné
+## Architecture: bypass order
+
+The interception logic evaluates layers in this order. The first matching layer short-circuits the check.
+
+| Layer | Bypass type | Configurable | When applied |
+| ----- | ----------- | ------------ | ------------ |
+| Root / `SUPERUSER_ID` / `sudo()` | Automatic | No | Any operation by the superuser or in `sudo` context |
+| `TransientModel` | Automatic | No (hardcoded) | All wizards (`_transient = True`) |
+| POS critical models | Automatic | No (hardcoded) | List of 13 POS workflow models |
+| System infrastructure models | Automatic | No (hardcoded) | List of 6 Odoo runtime models |
+| Writable exceptions | User-defined | Yes (UI) | Per `role.management` via `writable_model_ids` |
+| `is_readonly` global | Enforced | — | Falls through if no bypass above matched |
+| `is_model_readonly` per model | Enforced | Yes (Field Access list) | After all bypass checks |
+| `is_field_readonly` per field | Enforced | Yes (Field Access list) | After all bypass checks |
 
 ## Installation
 
-1. Copier le dossier `access_roles_security` dans votre répertoire d'addons
-2. Redémarrer Odoo : `python odoo-bin --addons-path=addons,third-party-addons -d votre_base -u base`
-3. Aller dans **Apps** > chercher **"Access Roles - Server Security"** > **Installer**
+This module depends on the third-party `access_roles` module; install that one first.
 
-## Configuration
+1. Copy the `access_roles_security` folder into your Odoo addons path
+2. Restart Odoo: `python odoo-bin --addons-path=addons,third-party-addons -d <your_db> -u base`
+3. Go to **Apps**, search for **"Access Roles - Server Security"**, and click **Install**
 
-**Aucune configuration nécessaire** pour démarrer. Le module utilise directement les règles déjà définies dans **Access Role > Role Management** du module `access_roles`.
+No further configuration is required to start enforcing the existing rules.
 
 ## Usage
 
-### Exceptions écriture
+### Configuring writable exceptions
 
-À partir de la **v18.0.1.1.0**, lorsqu'un rôle a `is_readonly=True` (lecture seule globale), **tous les modèles** sont en lecture seule pour les utilisateurs assignés à ce rôle — sauf ceux explicitement listés en exception.
+When a role has `is_readonly=True`, every model becomes read-only for the users assigned to that role — except for the ones explicitly listed as exceptions.
 
-**Workflow** :
+**Workflow:**
 
-1. Ouvrir **Settings > Access Roles > Role Management** et sélectionner le rôle concerné (ex. `Controleur`).
-2. Cocher `Make System ReadOnly` (`is_readonly=True`).
-3. Un nouvel onglet **"Exceptions écriture"** apparaît dans le formulaire (visible uniquement si `is_readonly=True`).
-4. Dans cet onglet, ajouter les modèles autorisés à l'édition via le widget Many2many tags (`writable_model_ids`).
-5. Sauvegarder — les users de ce rôle peuvent désormais éditer ces modèles, le reste reste verrouillé.
+1. Open **Settings > Access Roles > Role Management** and pick the role.
+2. Tick **Make System ReadOnly** (`is_readonly=True`).
+3. A new notebook tab **"Exceptions écriture"** appears on the form (visible only when `is_readonly` is on).
+4. In that tab, add the writable models via the Many2many tags widget (`writable_model_ids`).
+5. Save — users assigned to that role can now edit those specific models; everything else stays locked.
 
-**Exemple SOPROMER — rôle "Contrôleur de gestion"** :
+**Example.** A controller / management-control role needs to maintain the product catalogue (price, category, supplier) but must stay read-only on everything else (invoices, orders, payments, accounting, etc.). Add `product.template`, `product.product`, `product.category` to the exceptions list. Per-model and per-field restrictions configured explicitly on these models (`is_model_readonly`, `is_field_readonly`) keep applying — the exception only lifts the global read-only switch.
 
-- `is_readonly` coché → tout en lecture seule par défaut
-- Exceptions cochées : `product.template`, `product.product`, `product.category`
-- Résultat : les CdG peuvent éditer les fiches produits (prix, catégorie, fournisseur) **sans perdre la protection** sur le reste du système (factures, commandes, paiements, etc.)
+## Bypass model lists (reference)
 
-> Les restrictions per-model (`is_model_readonly`) et per-field (`is_field_readonly`) configurées explicitement sur ces modèles **continuent de s'appliquer** — l'exception lève uniquement la lecture seule globale.
+The following bypass lists are hardcoded by design. They cover technical models that either do not carry business data, or are written by the Odoo framework itself in the background. Exposing them in the UI would only invite misconfiguration.
 
-> Note : un screenshot de l'onglet "Exceptions écriture" pourra être ajouté ici ultérieurement.
+### `_POS_BYPASS_MODELS` — Point of Sale workflow (13 models)
 
-## Migration / Upgrade notes
+Introduced in v18.0.1.0.1 after a P0 incident where a cashier role with `is_readonly` semantics was blocked at the `pos.order` state transition `draft → paid → done`. POS sessions interleave write operations across orders, payments, stock moves, and journal entries; blocking any single step corrupts the session.
 
-### System models bypass (v18.0.1.2.0)
+| Model | Why it is bypassed |
+| ----- | ------------------ |
+| `pos.order` | POS order header, state transitions during checkout |
+| `pos.order.line` | Order lines written as the cart is built |
+| `pos.payment` | Payment registration on order validation |
+| `pos.session` | Session open / close lifecycle |
+| `stock.picking` | Outbound picking generated on session validation |
+| `stock.move` | Stock moves linked to picking |
+| `stock.move.line` | Lot / serial assignment on stock moves |
+| `stock.quant` | Quant recomputation after move processing |
+| `account.move` | Invoices generated for paid orders flagged as invoiced |
+| `account.move.line` | Journal items on invoice / closing entry |
+| `account.bank.statement` | Cash control entries on session close |
+| `account.bank.statement.line` | Statement line creation per payment method |
+| `account.payment` | Linked payment record for invoiced orders |
 
-À partir de la **v18.0.1.2.0**, une seconde liste de bypass inconditionnel
-(`_SYSTEM_BYPASS_MODELS`) est appliquée AVANT le check `is_readonly`. Elle cible
-les modèles techniques infrastructure d'Odoo écrits en arrière-plan par le
-framework lui-même :
+Security is preserved by the native ACLs, record rules, and complementary modules (e.g. `sensible_pos_access_rights_employee`, `access_roles` UI hiding). Cashiers cannot reach these models from the UI; the bypass only covers the automatic ORM writes triggered by the POS workflow itself.
 
-| Modèle | Rôle |
-|--------|------|
-| `bus.presence` | Heartbeat longpolling (ping ~30s pour suivre les users online) |
-| `bus.presence.dispatcher` | Dispatcher du bus de présence (v18) |
-| `res.users.settings` | Préférences UI utilisateur (sidebar discuss, etc.) |
-| `res.users.settings.volumes` | Niveaux audio canal discuss (notifications) |
-| `mail.notification` | Notifications mail / chatter par destinataire |
-| `res.users.log` | Logs internes de connexion utilisateur |
+### `_SYSTEM_BYPASS_MODELS` — Odoo infrastructure (6 models)
 
-**Pourquoi hardcodé et pas configurable via UI** :
+Introduced in v18.0.1.2.0 to suppress the "Access Error" popup triggered by Odoo background writes during regular navigation.
 
-- Ces modèles ne portent **aucune donnée métier** (heartbeat, prefs UI,
-  logs techniques).
-- Les writes sont déclenchés par le **runtime Odoo lui-même**, pas par une
-  action utilisateur. Bloquer ces writes via `is_readonly=True` génère une
-  popup "Erreur d'accès" à chaque navigation, **même sans action user**.
-- L'administrateur n'a aucune raison légitime de vouloir bloquer ces écritures.
-- Pattern miroir de `_POS_BYPASS_MODELS` (v18.0.1.0.1).
+| Model | Why it is bypassed |
+| ----- | ------------------ |
+| `bus.presence` | User heartbeat for real-time notifications, written every ~30 s by longpolling |
+| `bus.presence.dispatcher` | Dispatcher of the presence bus (v18) |
+| `res.users.settings` | Per-user UI preferences (Discuss sidebar, OWL settings) |
+| `res.users.settings.volumes` | Audio volume levels per Discuss channel |
+| `mail.notification` | Mail / chatter notifications per recipient |
+| `res.users.log` | Internal login / connection logs |
 
-Les checks per-model (`is_model_readonly`) et per-field (`is_field_readonly`)
-configurés explicitement sur ces modèles ne s'appliquent **plus** (bypass total).
-En pratique, aucun admin ne configure ces modèles de toute façon.
+These models hold no business data, and the writes are issued by the runtime, not by a user action. Blocking them produces an error popup on every page load.
 
-### Upgrade vers v18.0.1.1.0 (depuis v18.0.1.0.3 ou antérieur) :
+### `TransientModel` bypass
 
-- Le script `migrations/18.0.1.1.0/post-migration.py` s'exécute automatiquement lors de l'upgrade et **pré-coche les 12 modèles `product.*`** sur tout rôle dont le nom contient `Controleur` (insensible à la casse).
-- Objectif : préserver à l'identique le comportement de la whitelist hardcodée v18.0.1.0.3 sans régression pour les 8 utilisateurs CdG SOPROMER impactés.
-- Migration **idempotente** : ré-exécutable sans risque, ignore les modèles non installés sur l'instance.
-- Aucune perte de données : les configurations de rôles existantes restent intactes.
-- Post-upgrade : vérifier que l'onglet "Exceptions écriture" est bien renseigné sur le rôle `Controleur` (12 entrées `product.*` attendues).
+All transient models (wizards) are bypassed in `create` / `write` / `unlink`. Wizards are session-scoped scratch data, garbage-collected after ~60 minutes; they do not persist business state. The downstream actions launched by a wizard still go through their target models (`stock.move`, `account.move`, etc.), where the ACLs, record rules, and role restrictions apply normally.
 
-## Changelog (résumé)
+This bypass was introduced in v18.0.1.0.2 after read-only roles were found unable to launch any reporting wizard, because every wizard writes its own state and binary result back onto itself.
 
-Détail complet dans [CHANGELOG.md](CHANGELOG.md).
+## Migration notes
 
-| Version | Date | Résumé |
-|---------|------|--------|
-| **18.0.1.2.0** | 2026-06-01 | fix — bypass modèles infra Odoo (bus.presence, res.users.settings, mail.notification, res.users.log) pour rôles `is_readonly` (résout popup "Erreur d'accès" sur navigation) |
-| 18.0.1.1.0 | 2026-06-01 | feat — whitelist écriture configurable via UI (Many2many `writable_model_ids`) |
-| 18.0.1.0.3 | 2026-06-01 | superseded by 1.1.0 (whitelist `product.*` hardcodée — abandonnée) |
-| 18.0.1.0.2 | 2026-05-19 | fix — bypass TransientModel (wizards CdG débloqués) |
-| 18.0.1.0.1 | 2026-05-12 | fix — bypass modèles critiques POS (incident P0 caissier) |
+### Upgrade to v18.0.1.1.0 (from v18.0.1.0.3 or earlier)
+
+The script `migrations/18.0.1.1.0/post-migration.py` runs automatically on upgrade and **pre-populates the 12 `product.*` models** on any role whose name contains `Controleur` (case-insensitive). This preserves the behaviour of the v18.0.1.0.3 hardcoded whitelist, which has been removed in favour of the UI-managed `writable_model_ids` field.
+
+- Instances without any role named `Controleur` are skipped silently — no impact.
+- The migration is idempotent and ignores models not installed on the instance.
+- No data loss: existing role configurations are untouched.
+- Post-upgrade: open the role form, **Exceptions écriture** tab, and verify that the expected `product.*` entries are present.
+
+If your deployment uses a different naming convention for management-control roles, you can either rename the role to include `Controleur` before the upgrade, or simply tick the desired models manually in the new tab after upgrade.
+
+## Changelog summary
+
+Full detail in [CHANGELOG.md](CHANGELOG.md).
+
+| Version | Date | Summary |
+| ------- | ---- | ------- |
+| **18.0.1.2.0** | 2026-06-01 | fix — bypass for Odoo infra models (`bus.presence`, `res.users.settings`, `mail.notification`, `res.users.log`, ...) under `is_readonly` roles, removes spurious "Access Error" popups on navigation |
+| 18.0.1.1.0 | 2026-06-01 | feat — UI-configurable writable exception list (`writable_model_ids` Many2many on `role.management`) |
+| 18.0.1.0.3 | 2026-06-01 | superseded by 1.1.0 (hardcoded `product.*` whitelist — replaced by configurable list) |
+| 18.0.1.0.2 | 2026-05-19 | fix — bypass `TransientModel` (unblocks wizards under read-only roles) |
+| 18.0.1.0.1 | 2026-05-12 | fix — bypass POS-critical models to prevent workflow blocking |
 | 18.0.1.0.0 | — | Initial release |
 
-## Dépendances
+## Compatibility
+
+- Odoo 18.0 Community
+- Third-party module `access_roles` (Cybrosys Techno Solutions) — required dependency
+
+## Dependencies
 
 - `access_roles` (Cybrosys Techno Solutions)
 
-## Licence
+## License
 
 AGPL-3
+
+## Author / Contributors
+
+Custom
