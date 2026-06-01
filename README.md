@@ -1,6 +1,6 @@
 # Access Roles - Server Security (Odoo 18)
 
-**Version : 18.0.1.1.0** — [Changelog complet](CHANGELOG.md)
+**Version : 18.0.1.2.0** — [Changelog complet](CHANGELOG.md)
 
 Module compagnon de [Access Roles](https://apps.odoo.com/apps/modules/18.0/access_roles/) (Cybrosys) qui ajoute l'enforcement **côté serveur** des restrictions de rôles.
 
@@ -8,7 +8,7 @@ Module compagnon de [Access Roles](https://apps.odoo.com/apps/modules/18.0/acces
 
 - Enforcement ORM des restrictions `access_roles` sur `create` / `write` / `unlink` (anti-bypass URL/RPC)
 - Vérifications per-modèle (`is_model_readonly`), per-champ (`is_field_readonly`) et globales (`is_readonly`)
-- Bypass automatique pour TransientModel (wizards) et modèles critiques POS (`pos.order`, `account.move`, ...)
+- Bypass automatique pour TransientModel (wizards), modèles critiques POS (`pos.order`, `account.move`, ...) et modèles infra Odoo (`bus.presence`, `res.users.settings`, ...)
 - **Configurable writable models exceptions for read-only roles (UI-driven)** — onglet "Exceptions écriture" sur Role Management, voir [Usage](#exceptions-écriture)
 
 ## Problème
@@ -91,7 +91,37 @@ Les vérifications sont ignorées pour :
 
 ## Migration / Upgrade notes
 
-**Upgrade vers v18.0.1.1.0** (depuis v18.0.1.0.3 ou antérieur) :
+### System models bypass (v18.0.1.2.0)
+
+À partir de la **v18.0.1.2.0**, une seconde liste de bypass inconditionnel
+(`_SYSTEM_BYPASS_MODELS`) est appliquée AVANT le check `is_readonly`. Elle cible
+les modèles techniques infrastructure d'Odoo écrits en arrière-plan par le
+framework lui-même :
+
+| Modèle | Rôle |
+|--------|------|
+| `bus.presence` | Heartbeat longpolling (ping ~30s pour suivre les users online) |
+| `bus.presence.dispatcher` | Dispatcher du bus de présence (v18) |
+| `res.users.settings` | Préférences UI utilisateur (sidebar discuss, etc.) |
+| `res.users.settings.volumes` | Niveaux audio canal discuss (notifications) |
+| `mail.notification` | Notifications mail / chatter par destinataire |
+| `res.users.log` | Logs internes de connexion utilisateur |
+
+**Pourquoi hardcodé et pas configurable via UI** :
+
+- Ces modèles ne portent **aucune donnée métier** (heartbeat, prefs UI,
+  logs techniques).
+- Les writes sont déclenchés par le **runtime Odoo lui-même**, pas par une
+  action utilisateur. Bloquer ces writes via `is_readonly=True` génère une
+  popup "Erreur d'accès" à chaque navigation, **même sans action user**.
+- L'administrateur n'a aucune raison légitime de vouloir bloquer ces écritures.
+- Pattern miroir de `_POS_BYPASS_MODELS` (v18.0.1.0.1).
+
+Les checks per-model (`is_model_readonly`) et per-field (`is_field_readonly`)
+configurés explicitement sur ces modèles ne s'appliquent **plus** (bypass total).
+En pratique, aucun admin ne configure ces modèles de toute façon.
+
+### Upgrade vers v18.0.1.1.0 (depuis v18.0.1.0.3 ou antérieur) :
 
 - Le script `migrations/18.0.1.1.0/post-migration.py` s'exécute automatiquement lors de l'upgrade et **pré-coche les 12 modèles `product.*`** sur tout rôle dont le nom contient `Controleur` (insensible à la casse).
 - Objectif : préserver à l'identique le comportement de la whitelist hardcodée v18.0.1.0.3 sans régression pour les 8 utilisateurs CdG SOPROMER impactés.
@@ -105,7 +135,8 @@ Détail complet dans [CHANGELOG.md](CHANGELOG.md).
 
 | Version | Date | Résumé |
 |---------|------|--------|
-| **18.0.1.1.0** | 2026-06-01 | feat — whitelist écriture configurable via UI (Many2many `writable_model_ids`) |
+| **18.0.1.2.0** | 2026-06-01 | fix — bypass modèles infra Odoo (bus.presence, res.users.settings, mail.notification, res.users.log) pour rôles `is_readonly` (résout popup "Erreur d'accès" sur navigation) |
+| 18.0.1.1.0 | 2026-06-01 | feat — whitelist écriture configurable via UI (Many2many `writable_model_ids`) |
 | 18.0.1.0.3 | 2026-06-01 | superseded by 1.1.0 (whitelist `product.*` hardcodée — abandonnée) |
 | 18.0.1.0.2 | 2026-05-19 | fix — bypass TransientModel (wizards CdG débloqués) |
 | 18.0.1.0.1 | 2026-05-12 | fix — bypass modèles critiques POS (incident P0 caissier) |

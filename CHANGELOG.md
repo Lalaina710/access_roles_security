@@ -5,6 +5,30 @@ All notable changes to `access_roles_security` are documented here.
 This module follows [Semantic Versioning](https://semver.org/) with the Odoo
 prefix convention `18.0.X.Y.Z`.
 
+## 18.0.1.2.0 (2026-06-01)
+
+- fix: bypass system models (bus.presence, bus.presence.dispatcher,
+  res.users.settings, res.users.settings.volumes, mail.notification,
+  res.users.log) for is_readonly=True roles
+- Resolves "Erreur d'accès" popup triggered by Odoo background writes
+  (heartbeat longpolling ~30s, sidebar discuss OWL on every page load)
+  on every navigation for users assigned to read-only roles.
+- Hardcoded bypass (not UI-configurable) — these are infra models
+  written by the Odoo runtime itself, never business data, and have no
+  reason to be exposed in the role configuration UI. Mirrors the
+  `_POS_BYPASS_MODELS` pattern from v18.0.1.0.1.
+
+**Diagnostic source**: confirmed via `ACCESS_ROLES_DEBUG` logs showing
+write attempts on `bus.presence` (heartbeat) and `res.users.settings`
+(sidebar discuss) blocked for the `Controleur` role on 8 CdG users at
+SOPROMER.
+
+**Migration notes**
+- No data migration needed (single frozenset constant + bypass condition).
+- No UI changes.
+- No regression risk on existing roles: the bypass only widens what was
+  previously blocked.
+
 ## 18.0.1.1.0 (2026-06-01)
 
 - feat: configurable writable models exceptions for read-only roles (UI-driven)

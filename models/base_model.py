@@ -25,6 +25,24 @@ _POS_BYPASS_MODELS = frozenset({
 })
 
 
+# Modèles techniques infra Odoo écrits en arrière-plan par le framework
+# (heartbeat longpolling, sidebar discuss OWL, notifications mail, logs users).
+# Bypass inconditionnel : ces modèles ne sont jamais configurables côté UI métier,
+# ne portent aucune data business, et leurs writes sont déclenchés par le runtime
+# Odoo lui-même (pas par une action user). Bloquer ces writes via is_readonly
+# génère une popup "Erreur d'accès" à chaque navigation, même sans action user.
+# Cf. v18.0.1.2.0 : 8 users CdG SOPROMER (role Controleur is_readonly=True)
+# bloqués sur bus.presence (heartbeat ~30s) + res.users.settings (load page).
+_SYSTEM_BYPASS_MODELS = frozenset({
+    'bus.presence',
+    'bus.presence.dispatcher',
+    'res.users.settings',
+    'res.users.settings.volumes',
+    'mail.notification',
+    'res.users.log',
+})
+
+
 class BaseModel(models.AbstractModel):
     _inherit = 'base'
 
@@ -83,8 +101,12 @@ class BaseModel(models.AbstractModel):
         if self._transient:
             return super().create(vals_list)
         # Bypass précoce pour les modèles critiques POS (workflow natif).
-        if not self._is_pos_critical_model():
-            self._check_role_model_restriction('is_hide_create')
+        if self._is_pos_critical_model():
+            return super().create(vals_list)
+        # Bypass modèles techniques infra Odoo (heartbeat, user settings, etc.).
+        if self._name in _SYSTEM_BYPASS_MODELS:
+            return super().create(vals_list)
+        self._check_role_model_restriction('is_hide_create')
         return super().create(vals_list)
 
     def unlink(self):
@@ -92,8 +114,12 @@ class BaseModel(models.AbstractModel):
         if self._transient:
             return super().unlink()
         # Bypass précoce pour les modèles critiques POS (workflow natif).
-        if not self._is_pos_critical_model():
-            self._check_role_model_restriction('is_hide_delete')
+        if self._is_pos_critical_model():
+            return super().unlink()
+        # Bypass modèles techniques infra Odoo (heartbeat, user settings, etc.).
+        if self._name in _SYSTEM_BYPASS_MODELS:
+            return super().unlink()
+        self._check_role_model_restriction('is_hide_delete')
         return super().unlink()
 
     def write(self, vals):
@@ -108,6 +134,13 @@ class BaseModel(models.AbstractModel):
         # Évite de bloquer write pos.order/stock.picking/account.move
         # générés automatiquement par le flux POS et la chaîne logistique.
         if self._is_pos_critical_model():
+            return super().write(vals)
+        # Bypass modèles techniques infra Odoo (heartbeat longpolling,
+        # sidebar discuss, notifications, user logs). Ces writes sont
+        # déclenchés par le runtime Odoo en arrière-plan (toutes les ~30s
+        # pour bus.presence, à chaque load de page pour res.users.settings)
+        # et bloquer génère une popup "Erreur d'accès" intempestive.
+        if self._name in _SYSTEM_BYPASS_MODELS:
             return super().write(vals)
 
         management = self._get_role_management()

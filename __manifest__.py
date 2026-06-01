@@ -1,6 +1,6 @@
 {
     'name': 'Access Roles - Server Security',
-    'version': '18.0.1.1.0',
+    'version': '18.0.1.2.0',
     'category': 'Security',
     'summary': 'Server-side enforcement for Access Roles restrictions',
     'description': """
@@ -9,6 +9,19 @@ Prevents bypass via URL or RPC.
 
 Changelog
 ---------
+18.0.1.2.0 (2026-06-01)
+    [FIX] Bypass modèles techniques infra Odoo (bus.presence,
+          bus.presence.dispatcher, res.users.settings,
+          res.users.settings.volumes, mail.notification, res.users.log)
+          pour les rôles avec is_readonly=True. Résout la popup
+          "Erreur d'accès" intempestive déclenchée par les writes
+          arrière-plan du framework Odoo (heartbeat longpolling ~30s,
+          sidebar discuss OWL au load de page, etc.).
+          Hardcoded car ces modèles ne sont jamais configurables côté UI
+          métier et ne portent aucune data business. Pattern miroir de
+          _POS_BYPASS_MODELS (v18.0.1.0.1).
+          Impact : 8 users CdG SOPROMER (role Controleur) débloqués.
+
 18.0.1.1.0 (2026-06-01)
     [FEAT] Whitelist d'exception lecture seule désormais configurable via UI.
            Nouveau champ Many2many `writable_model_ids` sur role.management
