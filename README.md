@@ -1,6 +1,15 @@
 # Access Roles - Server Security (Odoo 18)
 
+**Version : 18.0.1.1.0** — [Changelog complet](CHANGELOG.md)
+
 Module compagnon de [Access Roles](https://apps.odoo.com/apps/modules/18.0/access_roles/) (Cybrosys) qui ajoute l'enforcement **côté serveur** des restrictions de rôles.
+
+## Features
+
+- Enforcement ORM des restrictions `access_roles` sur `create` / `write` / `unlink` (anti-bypass URL/RPC)
+- Vérifications per-modèle (`is_model_readonly`), per-champ (`is_field_readonly`) et globales (`is_readonly`)
+- Bypass automatique pour TransientModel (wizards) et modèles critiques POS (`pos.order`, `account.move`, ...)
+- **Configurable writable models exceptions for read-only roles (UI-driven)** — onglet "Exceptions écriture" sur Role Management, voir [Usage](#exceptions-écriture)
 
 ## Problème
 
@@ -54,7 +63,53 @@ Les vérifications sont ignorées pour :
 
 ## Configuration
 
-**Aucune configuration nécessaire.** Le module utilise directement les règles déjà définies dans **Access Role > Role Management** du module `access_roles`.
+**Aucune configuration nécessaire** pour démarrer. Le module utilise directement les règles déjà définies dans **Access Role > Role Management** du module `access_roles`.
+
+## Usage
+
+### Exceptions écriture
+
+À partir de la **v18.0.1.1.0**, lorsqu'un rôle a `is_readonly=True` (lecture seule globale), **tous les modèles** sont en lecture seule pour les utilisateurs assignés à ce rôle — sauf ceux explicitement listés en exception.
+
+**Workflow** :
+
+1. Ouvrir **Settings > Access Roles > Role Management** et sélectionner le rôle concerné (ex. `Controleur`).
+2. Cocher `Make System ReadOnly` (`is_readonly=True`).
+3. Un nouvel onglet **"Exceptions écriture"** apparaît dans le formulaire (visible uniquement si `is_readonly=True`).
+4. Dans cet onglet, ajouter les modèles autorisés à l'édition via le widget Many2many tags (`writable_model_ids`).
+5. Sauvegarder — les users de ce rôle peuvent désormais éditer ces modèles, le reste reste verrouillé.
+
+**Exemple SOPROMER — rôle "Contrôleur de gestion"** :
+
+- `is_readonly` coché → tout en lecture seule par défaut
+- Exceptions cochées : `product.template`, `product.product`, `product.category`
+- Résultat : les CdG peuvent éditer les fiches produits (prix, catégorie, fournisseur) **sans perdre la protection** sur le reste du système (factures, commandes, paiements, etc.)
+
+> Les restrictions per-model (`is_model_readonly`) et per-field (`is_field_readonly`) configurées explicitement sur ces modèles **continuent de s'appliquer** — l'exception lève uniquement la lecture seule globale.
+
+> Note : un screenshot de l'onglet "Exceptions écriture" pourra être ajouté ici ultérieurement.
+
+## Migration / Upgrade notes
+
+**Upgrade vers v18.0.1.1.0** (depuis v18.0.1.0.3 ou antérieur) :
+
+- Le script `migrations/18.0.1.1.0/post-migration.py` s'exécute automatiquement lors de l'upgrade et **pré-coche les 12 modèles `product.*`** sur tout rôle dont le nom contient `Controleur` (insensible à la casse).
+- Objectif : préserver à l'identique le comportement de la whitelist hardcodée v18.0.1.0.3 sans régression pour les 8 utilisateurs CdG SOPROMER impactés.
+- Migration **idempotente** : ré-exécutable sans risque, ignore les modèles non installés sur l'instance.
+- Aucune perte de données : les configurations de rôles existantes restent intactes.
+- Post-upgrade : vérifier que l'onglet "Exceptions écriture" est bien renseigné sur le rôle `Controleur` (12 entrées `product.*` attendues).
+
+## Changelog (résumé)
+
+Détail complet dans [CHANGELOG.md](CHANGELOG.md).
+
+| Version | Date | Résumé |
+|---------|------|--------|
+| **18.0.1.1.0** | 2026-06-01 | feat — whitelist écriture configurable via UI (Many2many `writable_model_ids`) |
+| 18.0.1.0.3 | 2026-06-01 | superseded by 1.1.0 (whitelist `product.*` hardcodée — abandonnée) |
+| 18.0.1.0.2 | 2026-05-19 | fix — bypass TransientModel (wizards CdG débloqués) |
+| 18.0.1.0.1 | 2026-05-12 | fix — bypass modèles critiques POS (incident P0 caissier) |
+| 18.0.1.0.0 | — | Initial release |
 
 ## Dépendances
 
