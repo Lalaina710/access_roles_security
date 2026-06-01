@@ -25,6 +25,31 @@ _POS_BYPASS_MODELS = frozenset({
 })
 
 
+# Whitelist des modèles de fiche produit : édition autorisée même si le
+# rôle a `is_readonly=True` globalement. Les contrôleurs de gestion (CdG)
+# ont besoin d'éditer prix, libellés, catégories, fournisseurs, tarifs,
+# tags sans pouvoir modifier ni stock ni écritures comptables.
+# Les restrictions per-model (`is_model_readonly`) et per-field
+# (`is_field_readonly`) du rôle continuent de s'appliquer si configurées
+# explicitement sur ces modèles produit.
+# Cf. incident 2026-06-01 : 8 users CdG (rôle Controleur) bloqués sur
+# write product.template par AccessError "system-wide read-only".
+_PRODUCT_EDIT_ALLOWED = frozenset({
+    'product.template',
+    'product.product',
+    'product.category',
+    'product.pricelist',
+    'product.pricelist.item',
+    'product.attribute',
+    'product.attribute.value',
+    'product.template.attribute.line',
+    'product.template.attribute.value',
+    'product.supplierinfo',
+    'product.packaging',
+    'product.tag',
+})
+
+
 class BaseModel(models.AbstractModel):
     _inherit = 'base'
 
@@ -115,7 +140,14 @@ class BaseModel(models.AbstractModel):
             return super().write(vals)
 
         # Global readonly
-        if management.is_readonly:
+        # Bypass ciblé sur les modèles de fiche produit : un rôle
+        # `is_readonly=True` (ex. CdG Controleur) doit pouvoir éditer
+        # prix/libellés/catégories sans être bloqué globalement.
+        # Les checks per-model (is_model_readonly) et per-field
+        # (is_field_readonly) ci-dessous restent appliqués si
+        # configurés explicitement sur ces modèles produit.
+        # Cf. fix 2026-06-01 — 8 users CdG bloqués sur product.template.
+        if management.is_readonly and self._name not in _PRODUCT_EDIT_ALLOWED:
             raise AccessError(
                 _("Your access role '%(role)s' has system-wide read-only access.",
                   role=self.env.user.access_role_id.name)

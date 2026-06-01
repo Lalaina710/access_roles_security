@@ -1,0 +1,44 @@
+# Changelog
+
+All notable changes to `access_roles_security` are documented here.
+
+This module follows [Semantic Versioning](https://semver.org/) with the Odoo
+prefix convention `18.0.X.Y.Z`.
+
+## 18.0.1.0.3 (2026-06-01)
+
+- fix: whitelist product.* models for write/create even when role is_readonly=True
+- Resolves AccessError blocking CdG controllers from editing products (8 users impacted)
+
+Whitelisted models: `product.template`, `product.product`, `product.category`,
+`product.pricelist`, `product.pricelist.item`, `product.attribute`,
+`product.attribute.value`, `product.template.attribute.line`,
+`product.template.attribute.value`, `product.supplierinfo`,
+`product.packaging`, `product.tag`.
+
+Per-model (`is_model_readonly`) and per-field (`is_field_readonly`)
+restrictions configured explicitly on these product models continue to apply.
+
+Diagnostic source: `sopromer-rapports/05_securite_acces/diag_controller_product_edit_45_20260601.html`.
+
+## 18.0.1.0.2 (2026-05-19)
+
+- fix: bypass TransientModel (wizards) in create/write/unlink to unblock
+  users with is_readonly roles (ex. CdG Controleur) on report wizards
+  (stock_movement_report, sale_invoice_report, purchase_sage_report,
+  sopromer_sale_analysis_report, pos_cash_anomaly_report,
+  pos_cashinout_report, pos_sales_report, odoo_sage_export).
+
+## 18.0.1.0.1 (2026-05-12)
+
+- fix: bypass POS critical models to prevent workflow blocking
+  (pos.order, pos.order.line, pos.payment, pos.session, stock.picking,
+  stock.move, stock.move.line, stock.quant, account.move, account.move.line,
+  account.bank.statement, account.bank.statement.line, account.payment).
+- Origin: incident P0 2026-05-12 — POS cashier role blocked on write
+  pos.order state draft→paid→done.
+
+## 18.0.1.0.0
+
+- Initial release: server-side ORM enforcement of access_roles restrictions
+  (create/write/unlink interception based on role configuration).

@@ -1,6 +1,6 @@
 {
     'name': 'Access Roles - Server Security',
-    'version': '18.0.1.0.2',
+    'version': '18.0.1.0.3',
     'category': 'Security',
     'summary': 'Server-side enforcement for Access Roles restrictions',
     'description': """
@@ -9,6 +9,16 @@ Prevents bypass via URL or RPC.
 
 Changelog
 ---------
+18.0.1.0.3 (2026-06-01)
+    [FIX] Whitelist product.* models (product.template, product.product,
+          product.category, product.pricelist[.item], product.attribute[.value],
+          product.template.attribute.line/value, product.supplierinfo,
+          product.packaging, product.tag) — édition autorisée pour les rôles
+          avec is_readonly=True (CdG Controleur). Résout AccessError
+          "system-wide read-only" bloquant 8 utilisateurs CdG SOPROMER sur
+          l'édition fiche produit. Les restrictions per-model et per-field
+          continuent de s'appliquer si configurées explicitement.
+
 18.0.1.0.2 (2026-05-19)
     [FIX] Bypass TransientModel (wizards) in create/write/unlink to unblock
           users with is_readonly roles (ex. CdG Controleur) on report wizards
